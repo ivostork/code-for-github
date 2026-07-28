@@ -4,8 +4,7 @@ Python skript pro efektivní stahování statistik produktů z **Google Analytic
 
 ## 🛠️ Požadavky a Instalace
 
-1. Aktivujte své virtuální prostředí (`ga4-downloader`).
-2. Nainstalujte potřebné knihovny:
+1. Nainstalujte potřebné knihovny:
    ```bash
    pip install -r requirements.txt
    ```
