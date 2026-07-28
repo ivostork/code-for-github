@@ -1,0 +1,62 @@
+# ==========================================
+# Virtuální prostředí (včetně ga4-downloader)
+# ==========================================
+ga4-downloader/
+venv/
+.venv/
+env/
+ENV/
+
+
+# ==========================================
+# Cache a dočasné soubory Pythonu
+# ==========================================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ==========================================
+# Tajné klíče a konfigurace (Google API / venv)
+# ==========================================
+# Všechny JSON soubory (kvůli Google Service Account klíčům)
+*.json
+# Lokální proměnné prostředí
+.env
+.env.*
+!.env.example
+# Certifikáty a privátní klíče
+*.pem
+*.key
+
+# ==========================================
+# Datové a logovací soubory
+# ==========================================
+*.log
+*.csv
+*.xlsx
+*.sqlite3
+
+# ==========================================
+# Nastavení vývojových editorů (IDE)
+# ==========================================
+# VS Code
+.vscode/
+!.vscode/extensions.json
+
+# PyCharm / IntelliJ
+.idea/
+
+# Systémové soubory (macOS a Windows)
+.DS_Store
+Thumbs.db
