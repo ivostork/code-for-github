@@ -90,7 +90,7 @@ try:
                     Metric(name="itemsPurchased")
                 ],
                 date_ranges=[
-                    DateRange(start_date=start_str, date_range_name="", end_date=end_str)],
+                    DateRange(start_date=start_str, end_date=end_str)],
                 limit=API_LIMIT,
                 offset=offset
             )
