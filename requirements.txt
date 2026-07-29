@@ -3,3 +3,4 @@ python-dateutil
 google-analytics-data
 google-cloud-bigquery
 google-auth
+python-dotenv
