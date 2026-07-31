@@ -1,81 +1,91 @@
 import os
-from dotenv import load_dotenv
+import re
 from google.cloud import bigquery
 from google.oauth2 import service_account
+from dotenv import load_dotenv
+import pandas as pd
+import unidecode
 
-# 1. Načtení konfigurace
+# 1. NAČTENÍ ENVIRONMENT PROMĚNNÝCH
 load_dotenv()
 
-KEY_FILE = "ga4_key.json"
+# Automatické načtení z vašeho .env
 PROJECT_ID = os.getenv("BQ_PROJECT_ID")
 DATASET_ID = os.getenv("BQ_DATASET_ID")
-TABLE_ID = os.getenv("BQ_TABLE_ID2")
-SHEET_URL = os.getenv("SHEET_URL")
+TABLE_ID = os.getenv("BQ_TABLE_ID2")  # Použije 'main_product_id'
+CREDENTIALS_PATH = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 
+# Kontrola, zda jsou všechny potřebné proměnné v .env přítomny
+if not all([PROJECT_ID, DATASET_ID, TABLE_ID, CREDENTIALS_PATH]):
+    raise ValueError(
+        "V souboru .env chybí některá z klíčových proměnných "
+        "(BQ_PROJECT_ID, BQ_DATASET_ID, BQ_TABLE_ID2, GOOGLE_APPLICATION_CREDENTIALS)."
+    )
 
-def run_import():
-    if not all([PROJECT_ID, DATASET_ID, TABLE_ID, SHEET_URL]):
-        print("❌ Chyba: V souboru .env chybí některé proměnné (BQ_PROJECT_ID, BQ_DATASET_ID, BQ_TABLE_ID2, SHEET_URL).")
-        return
+# 2. NAČTENÍ A OČISTA DAT Z CSV
+print("Načítám a čistím data z CSV...")
+df = pd.read_csv("ids.csv")
 
-    print(f"🚀 Zahajuji import a transformaci sloupců do: {TABLE_ID}")
+# Pročištění názvů sloupců
+new_columns = []
+for c in df.columns:
+    # Odstranění diakritiky, whitespaces a převod na malá písmena
+    c_cleaned = unidecode.unidecode(c).strip().lower()
+    # Náhrada mezer podtržítkem
+    c_cleaned = re.sub(r" ", r"_", c_cleaned)
+    # Odstranění závorek a hvězdiček
+    c_cleaned = re.sub(r"[()*]", r"", c_cleaned)
+    new_columns.append(c_cleaned)
 
-    try:
-        scopes = ["https://www.googleapis.com/auth/bigquery",
-                  "https://www.googleapis.com/auth/drive"]
-        credentials = service_account.Credentials.from_service_account_file(
-            KEY_FILE, scopes=scopes)
-        client = bigquery.Client(project=PROJECT_ID, credentials=credentials)
+df.columns = new_columns
 
-        final_table_path = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
-        staging_table_path = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}_staging"
+# EXPLICITNÍ PŘETYPOVÁNÍ ID NA STRING
+if "id_polozky" in df.columns:
+    df["id_polozky"] = df["id_polozky"].astype(str)
 
-        # --- KROK 1: Dočasné propojení ---
-        external_config = bigquery.ExternalConfig("GOOGLE_SHEETS")
-        external_config.source_uris = [SHEET_URL]
-        external_config.options.skip_leading_rows = 1
-        external_config.autodetect = True
+# Očištění hodnot ve sloupci s cenou a PŘETYPOVÁNÍ NA FLOAT
+target_price_col = "koncovy_zakaznik_s_dph"
 
-        staging_table = bigquery.Table(staging_table_path)
-        staging_table.external_data_configuration = external_config
-        client.delete_table(staging_table_path, not_found_ok=True)
-        client.create_table(staging_table)
+if target_price_col in df.columns:
+    # Odstraní 'Kč' a všechny mezery (např. '1 579 Kč' -> '1579')
+    df[target_price_col] = df[target_price_col].astype(str).str.replace(
+        r"[^\d]", "", regex=True
+    )
+    # Přetypování na FLOAT (desetinné číslo)
+    df[target_price_col] = pd.to_numeric(
+        df[target_price_col], errors="coerce").astype(float)
 
-        # --- KROK 2: SQL s přejmenováním a čištěním ---
-        # Zde definujeme, jak se mají sloupce přejmenovat a vyčistit
-        sql_query = f"""
-        CREATE OR REPLACE TABLE `{final_table_path}` AS
-        SELECT 
-            CAST(id_polozk AS STRING) as id_polozky,
-            `Název položky` as Nazev_polozky,
-            Dodavatel,
-            Výrobce as Vyrobce,
-            CAST(
-                REPLACE(
-                    REGEXP_REPLACE(`Koncový zákazník`, r'[^0-9,.]', ''), 
-                    ',', '.'
-                ) AS FLOAT64
-            ) as Koncovy_zakaznik,
-            `Počet variant` as Pocet_variant,
-            `Počet obrázků` as Pocet_obrazku
-        FROM `{staging_table_path}`
-        """
+# 3. AUTENTIKACE A INICIALIZACE BIGQUERY KLIENTA
+print("Připojuji se k Google BigQuery...")
+credentials = service_account.Credentials.from_service_account_file(
+    CREDENTIALS_PATH
+)
+client = bigquery.Client(credentials=credentials, project=PROJECT_ID)
 
-        print("  - Čistím názvy sloupců, odstraňuji diakritiku a měnu...")
-        query_job = client.query(sql_query)
-        query_job.result()
+# Sestavení plné cesty k tabulce (project.dataset.table)
+full_table_path = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
 
-        # --- KROK 3: Úklid ---
-        client.delete_table(staging_table_path)
+# 4. KONFIGURACE A SPOUŠTĚNÍ IMPORTU DO BIGQUERY
+job_config = bigquery.LoadJobConfig(
+    # WRITE_TRUNCATE: přepíše tabulku při každém spuštění novými daty
+    write_disposition="WRITE_TRUNCATE",
+    # Automaticky určí správné datové typy v BigQuery podle Pandas
+    autodetect=True,
+)
 
-        print(
-            f"✅ HOTOVO! Tabulka `{TABLE_ID}` byla vytvořena s čistými názvy:")
-        print(
-            f"   - Nazev_polozky, Vyrobce, Koncovy_zakaznik, Pocet_variant, Pocet_obrazku")
+print(f"Nahrávám DataFrame do tabulky {full_table_path}...")
+try:
+    # Spuštění nahrávání
+    job = client.load_table_from_dataframe(
+        df, full_table_path, job_config=job_config
+    )
 
-    except Exception as e:
-        print(f"❌ Chyba: {e}")
+    # Čekání na dokončení operace
+    job.result()
 
+    print("---")
+    print(f"Úspěch! Do tabulky bylo nahráno {df.shape[0]} řádků.")
 
-if __name__ == "__main__":
-    run_import()
+except Exception as e:
+    print("---")
+    print(f"Během nahrávání došlo k chybě:\n{e}")

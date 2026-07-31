@@ -14,7 +14,7 @@ from google.oauth2 import service_account
 # ==============================================================================
 load_dotenv()
 
-KEY_FILE = "ga4_key.json"
+KEY_FILE = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 PROPERTY_ID = os.getenv("GA4_PROPERTY_ID")
 PROJECT_ID = os.getenv("BQ_PROJECT_ID")
 DATASET_ID = os.getenv("BQ_DATASET_ID")
